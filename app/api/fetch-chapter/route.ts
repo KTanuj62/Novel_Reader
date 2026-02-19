@@ -13,18 +13,43 @@ export async function GET(request: NextRequest) {
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.google.com/',
       },
+      cache: 'no-store',
     });
 
-    if (!response.ok) {
+    let html = '';
+    let fallbackText = '';
+
+    if (response.ok) {
+      html = await response.text();
+    } else if (response.status === 403 || response.status === 429) {
+      const sanitizedUrl = url.replace(/^https?:\/\//, '');
+      const fallbackResponse = await fetch(`https://r.jina.ai/http://${sanitizedUrl}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        cache: 'no-store',
+      });
+
+      if (fallbackResponse.ok) {
+        fallbackText = await fallbackResponse.text();
+      } else {
+        return NextResponse.json(
+          { error: 'Failed to fetch chapter' },
+          { status: response.status }
+        );
+      }
+    } else {
       return NextResponse.json(
         { error: 'Failed to fetch chapter' },
         { status: response.status }
       );
     }
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
+    const $ = html ? cheerio.load(html) : cheerio.load('<div></div>');
 
     // Extract chapter content - adjust selectors based on the website structure
     // NovelFire.net specific selectors
@@ -60,6 +85,13 @@ export async function GET(request: NextRequest) {
         .get()
         .filter((text) => text.length > 20)
         .join('\n\n');
+    }
+
+    // If blocked and we have fallback text, use it as content
+    if ((!chapterContent || chapterContent.length < 100) && fallbackText) {
+      chapterContent = fallbackText
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
     }
 
     // Find next chapter link
