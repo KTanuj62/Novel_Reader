@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const url = request.nextUrl.searchParams.get('url');
@@ -17,6 +20,7 @@ export async function GET(request: NextRequest) {
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': 'https://www.google.com/',
       },
+      redirect: 'follow',
       cache: 'no-store',
     });
 
@@ -27,16 +31,28 @@ export async function GET(request: NextRequest) {
       html = await response.text();
     } else if (response.status === 403 || response.status === 429) {
       const sanitizedUrl = url.replace(/^https?:\/\//, '');
-      const fallbackResponse = await fetch(`https://r.jina.ai/http://${sanitizedUrl}`, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        cache: 'no-store',
-      });
+      const fallbackUrls = [
+        `https://r.jina.ai/https://${sanitizedUrl}`,
+        `https://r.jina.ai/http://${sanitizedUrl}`,
+      ];
 
-      if (fallbackResponse.ok) {
-        fallbackText = await fallbackResponse.text();
-      } else {
+      for (const fallbackUrl of fallbackUrls) {
+        const fallbackResponse = await fetch(fallbackUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/plain;q=0.9,*/*;q=0.8',
+          },
+          redirect: 'follow',
+          cache: 'no-store',
+        });
+
+        if (fallbackResponse.ok) {
+          fallbackText = await fallbackResponse.text();
+          break;
+        }
+      }
+
+      if (!fallbackText) {
         return NextResponse.json(
           { error: 'Failed to fetch chapter' },
           { status: response.status }
